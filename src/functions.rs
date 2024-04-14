@@ -76,5 +76,8 @@ mod tests {
         let t = array![[0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
         let x_result = 0.98305607;
         assert_eq!(cross_entropy_error(&x, &t), x_result);
+
+        let t = array![[1.0], [2.0]];
+        assert_eq!(cross_entropy_error(&x, &t), x_result);
     }
 }
