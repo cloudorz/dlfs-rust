@@ -15,29 +15,23 @@ impl Relu  {
 }
 
 impl Relu  {
-    pub fn forward(&mut self, x: NNMatrix) -> NNMatrix {
+    pub fn forward(&mut self, x: &NNMatrix) -> NNMatrix {
         self.mask = Some(x.mapv(|x| x < 0.0));
 
-        if let Some(ref _mask) = self.mask  {
-            let mut clone_x = x.clone();
-            clone_x.zip_mut_with(_mask,
-                 |x_value, bool_value| { 
-                    if *bool_value { *x_value = 0.0 };
-                });
-            clone_x
-        } else {
-            x
-        }
+        let mut clone_x = x.clone();
+        clone_x.zip_mut_with(self.mask.as_ref().unwrap(),
+             |x_value, bool_value| {
+                if *bool_value { *x_value = 0.0 };
+            });
+        clone_x
     }
 
     pub fn backward(&self, d_out: &NNMatrix) -> NNMatrix {
         let mut clone_d_out = d_out.clone();
-        if let Some(ref _mask) = self.mask {
-            clone_d_out.zip_mut_with(_mask,
-                 |x_value, bool_value| {
-                     if *bool_value { *x_value = 0.0 }; 
-                });
-        }
+        clone_d_out.zip_mut_with(self.mask.as_ref().unwrap(),
+             |x_value, bool_value| {
+                 if *bool_value { *x_value = 0.0 };
+            });
         clone_d_out
     }
     
@@ -45,7 +39,7 @@ impl Relu  {
 
 
 #[derive(Debug)]
-struct Sigmoid {
+pub struct Sigmoid {
     #[allow(dead_code)]
     out: Option<NNMatrix>
 }
@@ -73,8 +67,8 @@ impl Sigmoid  {
 }
 
 
-struct Affine {
-    bias: NNMatrix,
+pub struct Affine {
+    bias: NNBiasType,
     d_bias: Option<NNBiasType>,
     weight: NNMatrix,
     d_weight: Option<NNMatrix>,
@@ -82,7 +76,7 @@ struct Affine {
 }
 
 impl Affine {
-    pub fn new(weight: NNMatrix, bias: NNMatrix) -> Self {
+    pub fn new(weight: NNMatrix, bias: NNBiasType) -> Self {
         Self {
             bias,
             d_bias: None,
@@ -108,10 +102,15 @@ impl Affine {
 
         d_x
     }
+
+    pub fn update(&mut self, learning_rate: NNFloat) {
+        self.weight = &self.weight - self.d_weight.as_ref().unwrap() * learning_rate;
+        self.bias = &self.bias - self.d_bias.as_ref().unwrap() * learning_rate;
+    }
 }
 
 
-struct SoftmaxWithLoss {
+pub struct SoftmaxWithLoss {
     loss: Option<NNFloat>,
     y: Option<NNMatrix>,
     t: Option<NNMatrix>,
@@ -146,7 +145,7 @@ impl SoftmaxWithLoss {
         } else {
             let mut dx = ref_y.clone();
             for (i, arr) in ref_t.axis_iter(Axis(0)).enumerate() {
-                for (j, value) in arr.iter().enumerate() {
+                for value in arr.iter() {
                     dx[[i, *value as usize]] -= 1.0;
                 }
             }
