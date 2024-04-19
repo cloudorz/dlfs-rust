@@ -42,15 +42,15 @@ impl TwoLayerNet {
         x
     }
 
-    fn loss(&mut self, x: &NNMatrix, t: &NNMatrix) -> NNFloat {
+    pub fn loss(&mut self, x: &NNMatrix, t: &NNMatrix) -> NNFloat {
         let y = self.predict(x);
 
         self.last_layer.forward(&y, t)
     }
 
-    fn accuary(&mut self, x: &NNMatrix, t: &NNMatrix) -> NNFloat {
+    pub fn accuary(&mut self, x: &NNMatrix, t: &NNMatrix) -> NNFloat {
         let y = self.predict(x);
-        let t = t.map_axis(Axis(0),
+        let t = t.map_axis(Axis(1),
                            |arr| {
                                if arr.len() == 1 {
                                    arr[0] as usize
@@ -79,7 +79,7 @@ impl TwoLayerNet {
         match_num / x.shape()[0] as NNFloat
     }
 
-    fn update_params_with_gradient(&mut self, x: &NNMatrix, t: &NNMatrix, learning_rate: NNFloat) {
+    pub fn update_params_with_gradient(&mut self, x: &NNMatrix, t: &NNMatrix, learning_rate: NNFloat) {
         // forward
         self.loss(x, t);
         let d_out = self.last_layer.backward();

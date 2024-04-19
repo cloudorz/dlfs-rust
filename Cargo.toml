@@ -7,5 +7,6 @@ authors = ["Cloud <cloudcry@gmail.com>"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+mnist = { version = "0.6.0", features = ["download"] }
 ndarray = "0.15.6"
 ndarray-rand = "0.14.0"
