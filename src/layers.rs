@@ -67,6 +67,7 @@ impl Sigmoid  {
 }
 
 
+#[derive(Debug)]
 pub struct Affine {
     bias: NNBiasType,
     d_bias: Option<NNBiasType>,
@@ -90,9 +91,8 @@ impl Affine {
 impl Affine {
     pub fn forward(&mut self, x: &NNMatrix) -> NNMatrix {
         self.x = Some(x.clone());
-        let out = x.dot(&self.weight) + &self.bias;
 
-        out
+        x.dot(&self.weight) + &self.bias
     }
 
     pub fn backward(&mut self, d_out: &NNMatrix) -> NNMatrix {
@@ -110,6 +110,7 @@ impl Affine {
 }
 
 
+#[derive(Debug)]
 pub struct SoftmaxWithLoss {
     loss: Option<NNFloat>,
     y: Option<NNMatrix>,
@@ -173,7 +174,7 @@ mod tests {
             [0.0, 0.0, 1.0],
             [100.0, 0.0, 0.0],
             ];
-        assert_eq!(relu_layer.forward(x_vec), result_vec);
+        assert_eq!(relu_layer.forward(&x_vec), result_vec);
     }
 
     #[test]
