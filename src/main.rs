@@ -1,8 +1,8 @@
 use std::cmp::max;
 use crate::two_layer_net::TwoLayerNet;
-use crate::types::NNFloat;
+use crate::types::{NNFloat, NNMatrix};
 use mnist::*;
-use ndarray::{Array2, Axis};
+use ndarray::{Array, Array2, Axis};
 use ndarray_rand::{RandomExt, SamplingStrategy};
 
 mod layers;
@@ -53,16 +53,25 @@ fn main() {
     let mut train_acc_list: Vec<NNFloat> = vec![];
     let mut test_acc_list: Vec<NNFloat> = vec![];
     let iter_per_epoch = max(train_size / batch_size, 1);
+    let induce = Array::range(0.0, train_size as NNFloat, 1.0).mapv(|a| {a as usize});
 
     for i in 0..iters_num {
-        let x_batch = x_train.sample_axis(Axis(0), batch_size, SamplingStrategy::WithoutReplacement);
-        let t_batch = t_train.sample_axis(Axis(0), batch_size, SamplingStrategy::WithoutReplacement);
+        let batch_mask = induce.sample_axis(Axis(0), batch_size, SamplingStrategy::WithoutReplacement).to_vec();
+        let mut x_batch_vec: Vec<NNFloat> = vec![];
+        let mut t_batch_vec: Vec<NNFloat> = vec![];
+        for i in batch_mask {
+            x_batch_vec.append(&mut x_train.index_axis(Axis(0), i).to_vec());
+            t_batch_vec.append(&mut t_train.index_axis(Axis(0), i).to_vec());
+        }
+        let x_batch: NNMatrix = Array::from_shape_vec((batch_size, input_size), x_batch_vec).expect("");
+        let t_batch: NNMatrix = Array::from_shape_vec((batch_size, 10), t_batch_vec).expect("");
         network.update_params_with_gradient(&x_batch, &t_batch, learning_rate);
 
         let loss = network.loss(&x_batch, &t_batch);
         train_loss_list.push(loss);
 
         if i % iter_per_epoch == 0 {
+            println!("loss: {}", loss);
             let train_acc = network.accuary(&x_train, &t_train);
             let test_acc = network.accuary(&x_test, &t_test);
             train_acc_list.push(train_acc);
