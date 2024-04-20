@@ -60,15 +60,10 @@ impl TwoLayerNet {
                                    }).unwrap()
                                }
                            });
-        let y = y.fold_axis(Axis(1),
-                    (0, 0, 0.0),
-                    |(max, i, max_value), value| {
-                        if *value > *max_value {
-                            (*i + 1, *i + 1, *value)
-                        } else {
-                            (*max, *i + 1, *max_value)
-                        } })
-                        .mapv(|(max, _, _)| { max });
+        let y = y.map_axis(Axis(1), |arr| {
+            let max_v = arr.iter().max_by(|x1, x2| { x1.partial_cmp(x2).unwrap() }).unwrap();
+            arr.iter().position(|v| { *v == *max_v }).unwrap()
+        });
         let match_num = zip(y, t).fold(0.0, |acc, (y1, t1)| {
             if y1 == t1 {
                 acc + 1.0
@@ -85,7 +80,7 @@ impl TwoLayerNet {
         let d_out = self.last_layer.backward();
         let d_out = self.affine2.backward(&d_out);
         let d_out = self.relu.backward(&d_out);
-        let _ = self.affine1.backward(&d_out);
+        self.affine1.backward(&d_out);
 
         self.affine1.update(learning_rate);
         self.affine2.update(learning_rate);
