@@ -1,21 +1,18 @@
-use ndarray::prelude::*;
 use crate::types::*;
+use ndarray::prelude::*;
 
 fn exp<D: Dimension>(x: Array<NNFloat, D>) -> Array<NNFloat, D> {
-    x.mapv_into(|value | { value.exp() })
+    x.mapv_into(|value| value.exp())
 }
 
 pub fn sigmoid<D: Dimension>(x: &Array<NNFloat, D>) -> Array<NNFloat, D> {
     1.0 / (1.0 + exp(-x))
 }
 
-
 pub fn softmax(x: &NNMatrix) -> NNMatrix {
     // P.S: use `broadcast()` + reshape to avoid using `t()` twice ?
     let x = x.t().to_owned();
-    let x_max = x.fold_axis(Axis(0),
-                            0.0,
-                           |acc, v| { if *acc < *v { *v } else { *acc } });
+    let x_max = x.fold_axis(Axis(0), 0.0, |acc, v| if *acc < *v { *v } else { *acc });
     let x = exp(x - x_max);
     let x_sum = x.sum_axis(Axis(0));
     let y = x / x_sum;
@@ -27,7 +24,7 @@ pub fn cross_entropy_error(y: &NNMatrix, t: &NNMatrix) -> NNFloat {
     let batch_size = y.shape()[0];
     let k = if y.len() == t.len() {
         // one hot vector
-        t * y.mapv(|v| { (v + 1e-7).ln() })
+        t * y.mapv(|v| (v + 1e-7).ln())
     } else {
         let mut d = Array::<NNFloat, _>::zeros(t.raw_dim());
         for (i, arr) in t.axis_iter(Axis(0)).enumerate() {
@@ -40,11 +37,10 @@ pub fn cross_entropy_error(y: &NNMatrix, t: &NNMatrix) -> NNFloat {
     -k.sum() / (batch_size as NNFloat)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ndarray::{array};
+    use ndarray::array;
 
     #[test]
     fn test_sigmoid() {
@@ -52,12 +48,11 @@ mod tests {
         let x_results = array![0.26894142, 0.73105858, 0.880797];
         assert_eq!(sigmoid(&x), x_results);
 
-        let x = array![
-            [-1.0, 1.0, 2.0]
-            ,[-5.0, 5.0, 0.1]];
+        let x = array![[-1.0, 1.0, 2.0], [-5.0, 5.0, 0.1]];
         let x_results = array![
-            [0.26894142, 0.73105858, 0.880797]
-            , [0.006692851, 0.99330715, 0.52497919]];
+            [0.26894142, 0.73105858, 0.880797],
+            [0.006692851, 0.99330715, 0.52497919]
+        ];
         assert_eq!(sigmoid(&x), x_results);
     }
 
@@ -65,8 +60,9 @@ mod tests {
     fn test_softmax() {
         let x = array![[3.2, 1.3, 4.2], [0.3, 2.9, 4.0]];
         let x_results = array![
-            [0.25854158, 0.0386697 , 0.7027887]
-            , [0.018211273, 0.24519183, 0.73659694]];
+            [0.25854158, 0.0386697, 0.7027887],
+            [0.018211273, 0.24519183, 0.73659694]
+        ];
         assert_eq!(softmax(&x), x_results);
     }
 
