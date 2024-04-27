@@ -235,6 +235,56 @@ mod tests {
         assert_matrix_eq(&softmax_with_loss_layer.backward(), &result_backword);
     }
 
+    #[test]
+    fn test_affine() {
+        let weights = array![
+            [-0.00208241, 0.00527261, 0.00348774],
+            [0.00909407, 0.01500044, 0.00863171],
+            [-0.00988222, 0.00255272, -0.00220252],
+            [0.01846247, 0.00793499, 0.01425399],
+            [-0.00180464, -0.001775, 0.00317565]
+        ];
+        let bias = array![-0.05998749, 0.08272106, -0.39614827];
+        let x = array![
+            [
+                -0.37080965,
+                0.726_695_4,
+                0.4991388,
+                1.926_014_4,
+                1.690_234_9
+            ],
+            [
+                -0.351_198_9,
+                0.20009917,
+                -1.591_653_6,
+                -1.131_140_5,
+                -0.16842349
+            ]
+        ];
+        let mut affine = Affine::new(weights, bias);
+        let d_out = array![
+            [1.263_253_5, -0.77904165, 0.33553704],
+            [-0.31014598, 0.674_458_9, -1.507_464_3]
+        ];
+        let result_forward = array![
+            [-0.02503056, 0.10522357, -0.35944732],
+            [-0.06228708, 0.07113122, -0.40879843]
+        ];
+        let result_backward = array![
+            [-0.00556793, 0.00269841, -0.01521145, 0.02192384, 0.00016863],
+            [
+                -0.00105563,
+                -0.0057153,
+                0.00810686,
+                -0.02186162,
+                -0.00542464
+            ]
+        ];
+
+        assert_matrix_eq(&affine.forward(&x), &result_forward);
+        assert_matrix_eq(&affine.backward(&d_out), &result_backward);
+    }
+
     fn assert_matrix_eq(x: &NNMatrix, y: &NNMatrix) {
         assert!((x - y)
             .iter()
