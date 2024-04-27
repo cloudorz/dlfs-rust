@@ -189,6 +189,59 @@ mod tests {
 
     #[test]
     fn test_sigmoid_backward() {
-        // TODO: use the regular way of calculating differentials to check the result ?
+        let mut sigmoid_layer = Sigmoid::new();
+        let x_vec = array![[18.0, 0.0, -100.0], [-100.0, 50.0, 0.0],];
+        let d_out = array![[1.0, 0.0, -1.0], [-0.5, 1.5, 0.1]];
+        let result_vec = array![[1.522_997_9e-8, 0.0, 0.0], [0.0, 0.0, 2.5e-02]];
+        sigmoid_layer.forward(&x_vec);
+
+        assert_matrix_eq(&sigmoid_layer.backward(&d_out), &result_vec);
+    }
+
+    #[test]
+    fn test_softmax_with_loss() {
+        let mut softmax_with_loss_layer = SoftmaxWithLoss::new();
+        let x_vec = array![[8.1, 2.5, 7.8, 0.5, 2.5], [1.5, 0.3, 0.4, 0.5, 0.6]];
+        let t_vec = array![[1.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0, 0.0]];
+        let t_vec_2 = array![[0.0], [2.0]];
+        let result_forward = 1.268945;
+        let result_backword = array![
+            [
+                -2.140_756_7e-1,
+                1.057_309_2e-3,
+                2.118_179_5e-1,
+                1.430_912_4e-4,
+                1.057_309_2e-3
+            ],
+            [
+                2.075_968_5e-1,
+                6.252_697e-2,
+                -4.308_97e-1,
+                7.637_061e-2,
+                8.440_258e-2
+            ]
+        ];
+
+        assert_eq_on_epsilon(
+            softmax_with_loss_layer.forward(&x_vec, &t_vec),
+            result_forward,
+        );
+        assert_matrix_eq(&softmax_with_loss_layer.backward(), &result_backword);
+
+        assert_eq_on_epsilon(
+            softmax_with_loss_layer.forward(&x_vec, &t_vec_2),
+            result_forward,
+        );
+        assert_matrix_eq(&softmax_with_loss_layer.backward(), &result_backword);
+    }
+
+    fn assert_matrix_eq(x: &NNMatrix, y: &NNMatrix) {
+        assert!((x - y)
+            .iter()
+            .all(|value| { value.abs() < NNFloat::EPSILON }));
+    }
+
+    fn assert_eq_on_epsilon(x: NNFloat, y: NNFloat) {
+        assert!((x - y).abs() < NNFloat::EPSILON);
     }
 }

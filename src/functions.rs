@@ -45,13 +45,13 @@ mod tests {
     #[test]
     fn test_sigmoid() {
         let x = array![-1.0, 1.0, 2.0];
-        let x_results = array![0.26894142, 0.73105858, 0.880797];
+        let x_results = array![0.26894142, 0.731_058_6, 0.880797];
         assert_eq!(sigmoid(&x), x_results);
 
         let x = array![[-1.0, 1.0, 2.0], [-5.0, 5.0, 0.1]];
         let x_results = array![
-            [0.26894142, 0.73105858, 0.880797],
-            [0.006692851, 0.99330715, 0.52497919]
+            [0.26894142, 0.731_058_6, 0.880797],
+            [0.006692851, 0.993_307_2, 0.524_979_2]
         ];
         assert_eq!(sigmoid(&x), x_results);
     }
