@@ -2,6 +2,17 @@ use crate::functions::*;
 use crate::types::*;
 use ndarray::{Array2, Axis};
 
+pub enum Parameter<'a> {
+    Matrix(&'a mut NNMatrix, &'a NNMatrix),
+    Bias(&'a mut NNBiasType, &'a NNBiasType),
+}
+
+pub trait Layer {
+    fn forward(&mut self, x: &NNMatrix) -> NNMatrix;
+    fn backward(&mut self, d_out: &NNMatrix) -> NNMatrix;
+    fn parameters(&mut self) -> Vec<Parameter>;
+}
+
 #[derive(Debug)]
 pub struct Relu {
     #[allow(dead_code)]
@@ -14,8 +25,8 @@ impl Relu {
     }
 }
 
-impl Relu {
-    pub fn forward(&mut self, x: &NNMatrix) -> NNMatrix {
+impl Layer for Relu {
+    fn forward(&mut self, x: &NNMatrix) -> NNMatrix {
         self.mask = Some(x.mapv(|x| x < 0.0));
 
         let mut clone_x = x.clone();
@@ -27,7 +38,7 @@ impl Relu {
         clone_x
     }
 
-    pub fn backward(&self, d_out: &NNMatrix) -> NNMatrix {
+    fn backward(&mut self, d_out: &NNMatrix) -> NNMatrix {
         let mut clone_d_out = d_out.clone();
         clone_d_out.zip_mut_with(self.mask.as_ref().unwrap(), |x_value, bool_value| {
             if *bool_value {
@@ -35,6 +46,10 @@ impl Relu {
             };
         });
         clone_d_out
+    }
+
+    fn parameters(&mut self) -> Vec<Parameter> {
+        vec![]
     }
 }
 
@@ -50,17 +65,21 @@ impl Sigmoid {
     }
 }
 
-impl Sigmoid {
-    pub fn forward(&mut self, x: &NNMatrix) -> NNMatrix {
+impl Layer for Sigmoid {
+    fn forward(&mut self, x: &NNMatrix) -> NNMatrix {
         let out = sigmoid(x);
         self.out = Some(out.clone());
         out
     }
 
-    pub fn backward(&self, d_out: &NNMatrix) -> NNMatrix {
+    fn backward(&mut self, d_out: &NNMatrix) -> NNMatrix {
         let out = self.out.as_ref().unwrap();
 
         d_out * (1.0 - out) * out
+    }
+
+    fn parameters(&mut self) -> Vec<Parameter> {
+        vec![]
     }
 }
 
@@ -85,14 +104,16 @@ impl Affine {
     }
 }
 
-impl Affine {
-    pub fn forward(&mut self, x: &NNMatrix) -> NNMatrix {
+impl Affine {}
+
+impl Layer for Affine {
+    fn forward(&mut self, x: &NNMatrix) -> NNMatrix {
         self.x = Some(x.clone());
 
         x.dot(&self.weight) + &self.bias
     }
 
-    pub fn backward(&mut self, d_out: &NNMatrix) -> NNMatrix {
+    fn backward(&mut self, d_out: &NNMatrix) -> NNMatrix {
         let d_x = d_out.dot(&self.weight.t());
         self.d_weight = Some(self.x.as_ref().unwrap().t().dot(d_out));
         self.d_bias = Some(d_out.sum_axis(Axis(0)));
@@ -100,9 +121,11 @@ impl Affine {
         d_x
     }
 
-    pub fn update(&mut self, learning_rate: NNFloat) {
-        self.weight = &self.weight - self.d_weight.as_ref().unwrap() * learning_rate;
-        self.bias = &self.bias - self.d_bias.as_ref().unwrap() * learning_rate;
+    fn parameters(&mut self) -> Vec<Parameter> {
+        vec![
+            Parameter::Matrix(&mut self.weight, self.d_weight.as_ref().unwrap()),
+            Parameter::Bias(&mut self.bias, self.d_bias.as_ref().unwrap()),
+        ]
     }
 }
 
@@ -155,6 +178,47 @@ impl SoftmaxWithLoss {
     }
 }
 
+pub struct Sequence {
+    layers: Vec<Box<dyn Layer>>,
+}
+
+impl Sequence {
+    pub fn new() -> Self {
+        Self { layers: vec![] }
+    }
+
+    pub fn add(&mut self, layer: Box<dyn Layer>) {
+        self.layers.push(layer);
+    }
+}
+
+impl Layer for Sequence {
+    fn forward(&mut self, x: &NNMatrix) -> NNMatrix {
+        let mut x = x.to_owned();
+        for layer_box in self.layers.iter_mut() {
+            x = layer_box.forward(&x);
+        }
+
+        x
+    }
+
+    fn backward(&mut self, d_out: &NNMatrix) -> NNMatrix {
+        let mut d_out = d_out.to_owned();
+        for layer_box in self.layers.iter_mut().rev() {
+            d_out = layer_box.backward(&d_out);
+        }
+
+        d_out
+    }
+
+    fn parameters(&mut self) -> Vec<Parameter> {
+        self.layers
+            .iter_mut()
+            .flat_map(|x| x.parameters())
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -170,7 +234,7 @@ mod tests {
 
     #[test]
     fn test_relu_backward() {
-        let relu_layer = Relu {
+        let mut relu_layer = Relu {
             mask: Some(array![[false, true, false], [true, false, true]]),
         };
         let d_out_vec = array![[0.3, -0.5, -2.8], [0.1, 0.4, -1.2]];

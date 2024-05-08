@@ -7,6 +7,7 @@ use std::cmp::max;
 
 mod functions;
 mod layers;
+mod optimizer;
 mod two_layer_net;
 mod types;
 

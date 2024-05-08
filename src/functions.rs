@@ -1,5 +1,6 @@
 use crate::types::*;
 use ndarray::prelude::*;
+use std::iter::zip;
 
 fn exp<D: Dimension>(x: Array<NNFloat, D>) -> Array<NNFloat, D> {
     x.mapv_into(|value| value.exp())
@@ -35,6 +36,27 @@ pub fn cross_entropy_error(y: &NNMatrix, t: &NNMatrix) -> NNFloat {
         d
     };
     -k.sum() / (batch_size as NNFloat)
+}
+
+pub fn accuary(x: &NNMatrix, t: &NNMatrix) -> NNFloat {
+    let t = t.map_axis(Axis(1), |arr| {
+        if arr.len() == 1 {
+            arr[0] as usize
+        } else {
+            arr.iter().position(|value| *value == 1.0).unwrap()
+        }
+    });
+    let size = x.shape()[0];
+    let x = x.map_axis(Axis(1), |arr| {
+        let max_v = arr
+            .iter()
+            .max_by(|x1, x2| x1.partial_cmp(x2).unwrap())
+            .unwrap();
+        arr.iter().position(|v| *v == *max_v).unwrap()
+    });
+    let match_num = zip(x, t).fold(0.0, |acc, (y1, t1)| if y1 == t1 { acc + 1.0 } else { acc });
+
+    match_num / size as NNFloat
 }
 
 #[cfg(test)]
