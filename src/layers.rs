@@ -2,10 +2,7 @@ use crate::functions::*;
 use crate::types::*;
 use ndarray::{Array2, Axis};
 
-pub enum Parameter<'a> {
-    Matrix(&'a mut NNMatrix, &'a NNMatrix),
-    Bias(&'a mut NNBiasType, &'a NNBiasType),
-}
+pub type Parameter<'a> = (&'a mut NNMatrix, &'a NNMatrix);
 
 pub trait Layer {
     fn forward(&mut self, x: &NNMatrix) -> NNMatrix;
@@ -85,15 +82,15 @@ impl Layer for Sigmoid {
 
 #[derive(Debug)]
 pub struct Affine {
-    bias: NNBiasType,
-    d_bias: Option<NNBiasType>,
+    bias: NNMatrix,
+    d_bias: Option<NNMatrix>,
     weight: NNMatrix,
     d_weight: Option<NNMatrix>,
     x: Option<NNMatrix>,
 }
 
 impl Affine {
-    pub fn new(weight: NNMatrix, bias: NNBiasType) -> Self {
+    pub fn new(weight: NNMatrix, bias: NNMatrix) -> Self {
         Self {
             bias,
             d_bias: None,
@@ -116,15 +113,20 @@ impl Layer for Affine {
     fn backward(&mut self, d_out: &NNMatrix) -> NNMatrix {
         let d_x = d_out.dot(&self.weight.t());
         self.d_weight = Some(self.x.as_ref().unwrap().t().dot(d_out));
-        self.d_bias = Some(d_out.sum_axis(Axis(0)));
+        self.d_bias = Some(
+            d_out
+                .sum_axis(Axis(0))
+                .into_shape((1, d_out.shape()[1]))
+                .unwrap(),
+        );
 
         d_x
     }
 
     fn parameters(&mut self) -> Vec<Parameter> {
         vec![
-            Parameter::Matrix(&mut self.weight, self.d_weight.as_ref().unwrap()),
-            Parameter::Bias(&mut self.bias, self.d_bias.as_ref().unwrap()),
+            (&mut self.weight, self.d_weight.as_ref().unwrap()),
+            (&mut self.bias, self.d_bias.as_ref().unwrap()),
         ]
     }
 }
@@ -308,7 +310,7 @@ mod tests {
             [0.01846247, 0.00793499, 0.01425399],
             [-0.00180464, -0.001775, 0.00317565]
         ];
-        let bias = array![-0.05998749, 0.08272106, -0.39614827];
+        let bias = array![[-0.05998749, 0.08272106, -0.39614827]];
         let x = array![
             [
                 -0.37080965,

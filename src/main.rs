@@ -1,3 +1,4 @@
+use crate::optimizer::{Momentum, SGD};
 use crate::two_layer_net::TwoLayerNet;
 use crate::types::{NNFloat, NNMatrix};
 use mnist::*;
@@ -48,13 +49,15 @@ fn main() {
     let iters_num = 10000;
     let train_size = x_train.shape()[0];
     let batch_size = 100;
-    let learning_rate = 0.1;
+    // let learning_rate = 0.1;
 
     let mut train_loss_list: Vec<NNFloat> = vec![];
     let mut train_acc_list: Vec<NNFloat> = vec![];
     let mut test_acc_list: Vec<NNFloat> = vec![];
     let iter_per_epoch = max(train_size / batch_size, 1);
     let induce = Array::range(0.0, train_size as NNFloat, 1.0).mapv(|a| a as usize);
+    // let optimizer = SGD::new(learning_rate);
+    let mut optimizer = Momentum::default();
 
     for i in 0..iters_num {
         let batch_mask = induce
@@ -69,7 +72,7 @@ fn main() {
         let x_batch: NNMatrix =
             Array::from_shape_vec((batch_size, input_size), x_batch_vec).expect("");
         let t_batch: NNMatrix = Array::from_shape_vec((batch_size, 10), t_batch_vec).expect("");
-        network.update_params_with_gradient(&x_batch, &t_batch, learning_rate);
+        network.train(&x_batch, &t_batch, &mut optimizer);
 
         let loss = network.loss(&x_batch, &t_batch);
         train_loss_list.push(loss);
