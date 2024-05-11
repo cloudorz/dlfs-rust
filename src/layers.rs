@@ -1,6 +1,6 @@
 use crate::functions::*;
 use crate::types::*;
-use ndarray::{Array2, Axis};
+use ndarray::{Array, Array2, Axis, Dimension, ShapeBuilder};
 
 pub type Parameter<'a> = (&'a mut NNMatrix, &'a NNMatrix);
 
@@ -218,6 +218,121 @@ impl Layer for Sequence {
             .iter_mut()
             .flat_map(|x| x.parameters())
             .collect()
+    }
+}
+
+// http://arxiv.org/abs/1502.03167
+struct BatchNormalization {
+    gamma: NNMatrix,
+    beta: NNMatrix,
+    momentum: NNFloat,
+
+    running_mean: Option<NNMatrix>,
+    running_var: Option<NNMatrix>,
+
+    batch_size: Option<usize>,
+    xc: Option<NNMatrix>,
+    xn: Option<NNMatrix>,
+    std: Option<NNMatrix>,
+    d_gamma: Option<NNMatrix>,
+    d_beta: Option<NNMatrix>,
+}
+
+impl BatchNormalization {
+    fn forward<T: Dimension>(
+        &mut self,
+        x: Array<NNFloat, T>,
+        train_flag: bool,
+    ) -> Array<NNFloat, T> {
+        let input_shape = x.raw_dim();
+        let mut shape = (0, 0);
+        let shape_vec = x.shape().to_vec();
+        if x.shape().len() == 2 {
+            shape = (shape_vec[0], shape_vec[1]);
+        } else {
+            shape = (shape_vec[0], shape_vec[1] * shape_vec[2] * shape_vec[3]);
+        }
+        let x = x.into_shape(shape).unwrap();
+
+        let out = self._forward(&x, train_flag);
+
+        out.into_shape(input_shape).unwrap()
+    }
+
+    fn _forward(&mut self, x: &NNMatrix, train_flag: bool) -> NNMatrix {
+        if self.running_mean.is_none() {
+            let count = x.shape()[1];
+            self.running_mean = Some(NNMatrix::zeros((1, count)));
+            self.running_var = Some(NNMatrix::zeros((1, count)));
+        }
+
+        if train_flag {
+            let mu = x.mean_axis(Axis(0)).unwrap();
+            let xc = x - &mu;
+            let var = xc.mapv(|v| v.exp2()).mean_axis(Axis(0)).unwrap();
+            let std = (&var + 10e-7).mapv(|v| v.sqrt());
+            let xn = &xc / &std;
+
+            self.batch_size = Some(x.shape()[0]);
+            self.xc = Some(xc);
+            self.xn = Some(xn);
+            let count = std.len();
+            self.std = Some(std.into_shape((1, count)).unwrap());
+
+            self.running_mean = Some(
+                self.momentum * self.running_mean.as_ref().unwrap() + (1.0 - self.momentum) * &mu,
+            );
+            self.running_var = Some(
+                self.momentum * self.running_var.as_ref().unwrap() + (1.0 - self.momentum) * &var,
+            );
+
+            &self.gamma * self.xn.as_ref().unwrap() + &self.beta
+        } else {
+            let xc = x - self.running_mean.as_ref().unwrap();
+            let xn = xc / (self.running_var.as_ref().unwrap() + 10e-7).mapv(|v| v.sqrt());
+
+            &self.gamma * xn + &self.beta
+        }
+    }
+
+    pub fn backward<T: Dimension>(&mut self, d_out: Array<NNFloat, T>) -> Array<NNFloat, T> {
+        let input_shape = d_out.raw_dim();
+        let mut shape = (0, 0);
+        let shape_vec = d_out.shape().to_vec();
+        if d_out.shape().len() != 2 {
+            shape = (shape_vec[0], shape_vec[1] * shape_vec[2] * shape_vec[3]);
+        } else {
+            shape = (shape_vec[0], shape_vec[1]);
+        }
+        let x = d_out.into_shape(shape).unwrap();
+
+        let out = self._backward(&x);
+
+        out.into_shape(input_shape).unwrap()
+    }
+
+    fn _backward(&mut self, d_out: &NNMatrix) -> NNMatrix {
+        let sh = (1, d_out.shape()[1]);
+        let d_beta = d_out.sum_axis(Axis(0)).into_shape(sh);
+        let d_gamma = (self.xn.as_ref().unwrap() * d_out)
+            .sum_axis(Axis(0))
+            .into_shape(sh);
+
+        let d_xn = &self.gamma * d_out;
+        let ref_std = self.std.as_ref().unwrap();
+        let mut d_xc = &d_xn / ref_std;
+        let ref_xc = self.xc.as_ref().unwrap();
+        let d_std = ((&d_xn * ref_xc) / (ref_std * ref_std)).sum_axis(Axis(0));
+        let d_var = 0.5 * d_std / ref_std;
+        let batch_size = self.batch_size.unwrap() as NNFloat;
+        d_xc = d_xc + (2.0 / batch_size) * ref_xc * d_var;
+        let d_mu = d_xc.sum_axis(Axis(0));
+        let d_x = d_xc - d_mu / batch_size;
+
+        self.d_gamma = d_gamma.ok();
+        self.d_beta = d_beta.ok();
+
+        d_x
     }
 }
 
