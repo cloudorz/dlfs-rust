@@ -1,6 +1,8 @@
 use crate::functions::*;
 use crate::types::*;
-use ndarray::{Array, Array2, Axis, Dimension, ShapeBuilder};
+use ndarray::{Array, Array2, Axis, Dimension};
+use ndarray_rand::rand_distr::Uniform;
+use ndarray_rand::RandomExt;
 
 pub type Parameter<'a> = (&'a mut NNMatrix, &'a NNMatrix);
 
@@ -222,7 +224,7 @@ impl Layer for Sequence {
 }
 
 // http://arxiv.org/abs/1502.03167
-struct BatchNormalization {
+pub struct BatchNormalization {
     gamma: NNMatrix,
     beta: NNMatrix,
     momentum: NNFloat,
@@ -236,6 +238,34 @@ struct BatchNormalization {
     std: Option<NNMatrix>,
     d_gamma: Option<NNMatrix>,
     d_beta: Option<NNMatrix>,
+}
+
+impl BatchNormalization {
+    pub fn new(
+        gamma: NNMatrix,
+        beta: NNMatrix,
+        momentum: NNFloat,
+        running_mean: Option<NNMatrix>,
+        running_var: Option<NNMatrix>,
+    ) -> Self {
+        Self {
+            gamma,
+            beta,
+            momentum,
+            running_mean,
+            running_var,
+            batch_size: None,
+            xc: None,
+            xn: None,
+            std: None,
+            d_gamma: None,
+            d_beta: None,
+        }
+    }
+
+    pub fn default(gamma: NNMatrix, beta: NNMatrix) -> Self {
+        Self::new(gamma, beta, 0.9, None, None)
+    }
 }
 
 impl BatchNormalization {
@@ -333,6 +363,54 @@ impl BatchNormalization {
         self.d_beta = d_beta.ok();
 
         d_x
+    }
+}
+
+// http://arxiv.org/abs/1207.0580
+pub struct Dropout {
+    dropout_ratio: NNFloat,
+    mask: Option<Array2<bool>>,
+}
+
+impl Dropout {
+    pub fn new(dropout_ratio: NNFloat) -> Self {
+        Self {
+            dropout_ratio,
+            mask: None,
+        }
+    }
+
+    pub fn default() -> Self {
+        Self::new(0.5)
+    }
+}
+
+impl Dropout {
+    pub fn forward(&mut self, mut x: NNMatrix, train_flag: bool) -> NNMatrix {
+        if train_flag {
+            let mask = NNMatrix::random(x.raw_dim(), Uniform::new(-1.0, 1.0))
+                .mapv(|value| value > self.dropout_ratio);
+            x.zip_mut_with(&mask, |value, mask_value| {
+                if !mask_value {
+                    *value = 0.0;
+                }
+            });
+            self.mask = Some(mask);
+
+            x
+        } else {
+            x * (1.0 - self.dropout_ratio)
+        }
+    }
+
+    pub fn backward(&self, mut d_out: NNMatrix) -> NNMatrix {
+        d_out.zip_mut_with(self.mask.as_ref().unwrap(), |value, mask_value| {
+            if !mask_value {
+                *value = 0.0;
+            }
+        });
+
+        d_out
     }
 }
 
