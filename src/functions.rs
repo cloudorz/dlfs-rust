@@ -71,27 +71,27 @@ pub fn im2col(
     let channel_count = shape[1];
     let matrix_height = shape[2];
     let matrix_width = shape[3];
-    let out_h = (matrix_height + 2 * pad - filter_h) / stride + 1;
-    let out_w = (matrix_width + 2 * pad - filter_w) / stride + 1;
+    let padded_width = matrix_width + 2 * pad;
+    let padded_height = matrix_height + 2 * pad;
+    let out_h = (padded_height - filter_h) / stride + 1;
+    let out_w = (padded_width - filter_w) / stride + 1;
+    let out_size = out_w * out_h;
+    let filter_size = filter_w * filter_h;
 
-    let mut col = NNMatrix::zeros((
-        input_data_number * out_h * out_w,
-        filter_h * filter_w * channel_count,
-    ));
+    let mut col = NNMatrix::zeros((input_data_number * out_size, filter_size * channel_count));
     for row in 0..col.shape()[0] {
-        let input_data_index = row / (out_w * out_h);
-        let m = row % (out_w * out_h);
-        let input_data_height_index = m / out_h * stride;
-        let input_data_width_index = m % out_h * stride;
+        let input_data_index = row / out_size;
+        let m = row % out_size;
+        let offset_h = out_h * stride;
+        let input_data_height_index = m / offset_h;
+        let input_data_width_index = m % offset_h;
         for column in 0..col.shape()[1] {
-            let channel_index = column / (filter_w * filter_h);
-            let m = column % (filter_w * filter_h);
+            let channel_index = column / filter_size;
+            let m = column % filter_size;
             let filter_height_index = m / filter_h;
             let filter_width_index = m % filter_h;
             let height_index = input_data_height_index + filter_height_index;
             let width_index = input_data_width_index + filter_width_index;
-            let padded_width = matrix_width + 2 * pad;
-            let padded_height = matrix_height + 2 * pad;
 
             if pad > 0
                 && (width_index < pad
