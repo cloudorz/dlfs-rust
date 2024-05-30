@@ -117,7 +117,7 @@ pub fn im2col(
 
 pub fn col2im(
     col: &NNMatrix,
-    input_shape: [usize; 4],
+    input_shape: &[usize; 4],
     filter_h: usize,
     filter_w: usize,
     stride: usize,
@@ -410,10 +410,10 @@ mod tests {
             result.shape()[3],
         ];
 
-        assert_eq!(col2im(&x1, input_shape, 2, 2, 1, 0), result);
-        assert_eq!(col2im(&x2, input_shape, 2, 2, 1, 2), result);
+        assert_eq!(col2im(&x1, &input_shape, 2, 2, 1, 0), result);
+        assert_eq!(col2im(&x2, &input_shape, 2, 2, 1, 2), result);
         assert_eq!(
-            col2im(&im2col(&result, 2, 2, 1, 2), input_shape, 2, 2, 1, 2),
+            col2im(&im2col(&result, 2, 2, 1, 2), &input_shape, 2, 2, 1, 2),
             result
         );
     }

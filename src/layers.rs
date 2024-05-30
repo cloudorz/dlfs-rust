@@ -1,6 +1,6 @@
 use crate::functions::*;
 use crate::types::*;
-use ndarray::{Array, Array2, Axis, Dimension};
+use ndarray::{Array, Array1, Array2, Array4, Axis, Dimension};
 use ndarray_rand::rand_distr::Uniform;
 use ndarray_rand::RandomExt;
 
@@ -413,6 +413,115 @@ impl Dropout {
         d_out
     }
 }
+
+pub struct Convolution {
+    weight: Array4<NNFloat>,
+    bias: Array1<NNFloat>,
+    stride: usize,
+    pad: usize,
+
+    x_shape: Option<[usize; 4]>,
+    col: Option<NNMatrix>,
+    col_w: Option<NNMatrix>,
+
+    d_w: Option<Array4<NNFloat>>,
+    d_b: Option<Array1<NNFloat>>,
+}
+
+impl Convolution {
+    pub fn new(weight: Array4<NNFloat>, bias: Array1<NNFloat>, stride: usize, pad: usize) -> Self {
+        Self {
+            weight,
+            bias,
+            stride,
+            pad,
+            x_shape: None,
+            col: None,
+            col_w: None,
+            d_w: None,
+            d_b: None,
+        }
+    }
+
+    pub fn default(weight: Array4<NNFloat>, bias: Array1<NNFloat>) -> Self {
+        Self::new(weight, bias, 1, 0)
+    }
+}
+
+impl Convolution {
+    pub fn forward(&mut self, x: Array4<NNFloat>) -> Array4<NNFloat> {
+        let weight_shape = self.weight.shape();
+        let filter_number = weight_shape[0];
+        let filter_height = weight_shape[2];
+        let filter_width = weight_shape[3];
+        let x_shape = x.shape();
+        let input_number = x_shape[0];
+        let channel_count = x_shape[1];
+        let input_height = x_shape[2];
+        let input_width = x_shape[3];
+
+        let out_height = (input_height + 2 * self.pad - filter_height) / self.stride + 1;
+        let out_width = (input_width + 2 * self.pad - filter_width) / self.stride + 1;
+
+        let col = im2col(&x, filter_height, filter_width, self.stride, self.pad);
+        let col_w = self
+            .weight
+            .clone()
+            .into_shape((filter_number, channel_count * filter_height * filter_width))
+            .unwrap();
+        let out = col.dot(&col_w) + &self.bias;
+        let mut out = out
+            .into_shape((input_number, out_height, out_width, filter_number))
+            .unwrap();
+        // (0, 1, 2, 3) -> (0, 3, 1, 2)
+        out.swap_axes(2, 3);
+        out.swap_axes(1, 2);
+
+        self.x_shape = Some([input_number, channel_count, input_height, input_width]);
+        self.col = Some(col);
+        self.col_w = Some(col_w);
+
+        out
+    }
+
+    pub fn backward(&mut self, d_out: Array4<NNFloat>) -> Array4<NNFloat> {
+        let weight_shape = self.weight.shape();
+        let filter_number = weight_shape[0];
+        let channel_count = weight_shape[1];
+        let filter_height = weight_shape[2];
+        let filter_width = weight_shape[3];
+        let mut d_out = d_out;
+        // (0, 1, 2, 3) -> (0, 2, 3, 1)
+        d_out.swap_axes(1, 3);
+        d_out.swap_axes(1, 2);
+        let d1 = d_out.shape()[0];
+        let d2 = d_out.shape()[1];
+        let d3 = d_out.shape()[2];
+        let d4 = d_out.shape()[3];
+        let d_out = d_out.into_shape((d1 * d2 * d3, d4)).unwrap();
+
+        self.d_b = Some(d_out.sum_axis(Axis(0)));
+        let mut d_w = self.col.as_ref().unwrap().t().dot(&d_out);
+        d_w.swap_axes(0, 1);
+        self.d_w = Some(
+            d_w.into_shape((filter_number, channel_count, filter_height, filter_width))
+                .unwrap(),
+        );
+
+        let d_col = d_out.dot(&self.col_w.as_ref().unwrap().t());
+
+        col2im(
+            &d_col,
+            self.x_shape.as_ref().unwrap(),
+            filter_height,
+            filter_width,
+            self.stride,
+            self.pad,
+        )
+    }
+}
+
+struct Pooling {}
 
 #[cfg(test)]
 mod tests {
