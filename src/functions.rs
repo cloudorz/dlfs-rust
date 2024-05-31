@@ -132,7 +132,7 @@ pub fn col2im(
     let out_size = out_w * out_h;
     let filter_size = filter_w * filter_h;
 
-    let mut img = Array4::<NNFloat>::zeros(input_shape);
+    let mut img = Array4::<NNFloat>::zeros(input_shape.to_owned());
     for row in 0..col.shape()[0] {
         let input_data_index = row / out_size;
         let m = row % out_size;

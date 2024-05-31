@@ -521,7 +521,108 @@ impl Convolution {
     }
 }
 
-struct Pooling {}
+pub struct Pooling {
+    pool_h: usize,
+    pool_w: usize,
+    stride: usize,
+    pad: usize,
+
+    x_shape: Option<[usize; 4]>,
+    arg_max: Option<Vec<usize>>,
+}
+
+impl Pooling {
+    pub fn new(pool_h: usize, pool_w: usize, stride: usize, pad: usize) -> Self {
+        Self {
+            pool_h,
+            pool_w,
+            stride,
+            pad,
+
+            x_shape: None,
+            arg_max: None,
+        }
+    }
+}
+
+impl Pooling {
+    pub fn forward(&mut self, x: Array4<NNFloat>) -> Array4<NNFloat> {
+        let x_shape = x.shape();
+        let input_number = x_shape[0];
+        let channel_count = x_shape[1];
+        let input_height = x_shape[2];
+        let input_width = x_shape[3];
+        // TODO: no padding?
+        let out_height = (input_height + 2 * self.pad - self.pool_h) / self.stride + 1;
+        let out_width = (input_width + 2 * self.pad - self.pool_w) / self.stride + 1;
+
+        let col = im2col(&x, self.pool_h, self.pool_w, self.stride, self.pad);
+        let col = col
+            .into_shape((
+                input_number * out_height * out_width * channel_count,
+                self.pool_w * self.pool_h,
+            ))
+            .unwrap();
+
+        let mut arg_max_vec: Vec<usize> = vec![];
+        let mut out_vec: Vec<NNFloat> = vec![];
+        for row in col.axis_iter(Axis(0)) {
+            let value = *row
+                .iter()
+                .max_by(|x1, x2| x1.partial_cmp(x2).unwrap())
+                .unwrap();
+            let pos = row.iter().position(|item| *item == value).unwrap();
+            arg_max_vec.push(pos);
+            out_vec.push(value);
+        }
+        let mut out = Array4::from_shape_vec(
+            (input_number, out_height, out_width, channel_count),
+            out_vec,
+        )
+        .unwrap();
+        // (0, 1, 2, 3) -> (0, 3, 1, 2)
+        out.swap_axes(2, 3);
+        out.swap_axes(1, 2);
+
+        self.x_shape = Some([input_number, channel_count, input_height, input_width]);
+        self.arg_max = Some(arg_max_vec);
+
+        out
+    }
+
+    pub fn backward(&self, d_out: Array4<NNFloat>) -> Array4<NNFloat> {
+        let mut d_out = d_out;
+        let mut d_shape = d_out.shape().to_vec();
+        // (0, 1, 2, 3) -> (0, 2, 3, 1)
+        d_out.swap_axes(1, 3);
+        d_out.swap_axes(1, 2);
+
+        let pool_size = self.pool_h * self.pool_w;
+        let mut d_max = NNMatrix::zeros((d_out.len(), pool_size));
+        let arg_max = self.arg_max.as_ref().unwrap();
+        let d_out_vec = d_out.into_raw_vec(); // TODO: right order?
+        for i in 0..arg_max.len() {
+            d_max[[i, arg_max[i]]] = d_out_vec[i];
+        }
+        d_shape.push(pool_size);
+        let d_max = d_max.into_shape(d_shape.push(pool_size)).unwrap();
+        let d_col = d_max
+            .into_shape((
+                d_shape[0] * d_shape[1] * d_shape[2],
+                d_shape[3] * d_shape[4],
+            ))
+            .unwrap();
+
+        col2im(
+            &d_col,
+            self.x_shape.as_ref().unwrap(),
+            self.pool_h,
+            self.pool_w,
+            self.stride,
+            self.pad,
+        )
+    }
+}
 
 #[cfg(test)]
 mod tests {
