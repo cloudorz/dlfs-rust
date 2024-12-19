@@ -1,21 +1,16 @@
 use crate::functions::*;
+use crate::optimizer::Optimizer;
 use crate::types::*;
-use ndarray::{Array, Array1, Array2, Array4, Axis, Dimension};
+use ndarray::{Array, Array1, Array2, Array4, ArrayD, Axis, Dimension, Ix1, Ix2, Ix4};
 use ndarray_rand::rand_distr::Uniform;
 use ndarray_rand::RandomExt;
 
-pub type Parameter<'a> = (&'a mut NNMatrix, &'a NNMatrix);
-
-pub trait Layer {
-    fn forward(&mut self, x: &NNMatrix) -> NNMatrix;
-    fn backward(&mut self, d_out: &NNMatrix) -> NNMatrix;
-    fn parameters(&mut self) -> Vec<Parameter>;
-}
+pub type Parameter<'a> = (&'a mut NNArrayD, &'a NNArrayD);
 
 #[derive(Debug)]
 pub struct Relu {
     #[allow(dead_code)]
-    mask: Option<Array2<bool>>,
+    mask: Option<ArrayD<bool>>,
 }
 
 impl Relu {
@@ -24,8 +19,8 @@ impl Relu {
     }
 }
 
-impl Layer for Relu {
-    fn forward(&mut self, x: &NNMatrix) -> NNMatrix {
+impl Relu {
+    pub fn forward(&mut self, x: &NNArrayD) -> NNArrayD {
         self.mask = Some(x.mapv(|x| x < 0.0));
 
         let mut clone_x = x.clone();
@@ -34,10 +29,11 @@ impl Layer for Relu {
                 *x_value = 0.0
             };
         });
+
         clone_x
     }
 
-    fn backward(&mut self, d_out: &NNMatrix) -> NNMatrix {
+    pub fn backward(&mut self, d_out: &NNArrayD) -> NNArrayD {
         let mut clone_d_out = d_out.clone();
         clone_d_out.zip_mut_with(self.mask.as_ref().unwrap(), |x_value, bool_value| {
             if *bool_value {
@@ -46,16 +42,12 @@ impl Layer for Relu {
         });
         clone_d_out
     }
-
-    fn parameters(&mut self) -> Vec<Parameter> {
-        vec![]
-    }
 }
 
 #[derive(Debug)]
 pub struct Sigmoid {
     #[allow(dead_code)]
-    out: Option<NNMatrix>,
+    out: Option<NNArrayD>,
 }
 
 impl Sigmoid {
@@ -64,21 +56,17 @@ impl Sigmoid {
     }
 }
 
-impl Layer for Sigmoid {
-    fn forward(&mut self, x: &NNMatrix) -> NNMatrix {
+impl Sigmoid {
+    pub fn forward(&mut self, x: &NNArrayD) -> NNArrayD {
         let out = sigmoid(x);
         self.out = Some(out.clone());
         out
     }
 
-    fn backward(&mut self, d_out: &NNMatrix) -> NNMatrix {
+    pub fn backward(&mut self, d_out: &NNArrayD) -> NNArrayD {
         let out = self.out.as_ref().unwrap();
 
         d_out * (1.0 - out) * out
-    }
-
-    fn parameters(&mut self) -> Vec<Parameter> {
-        vec![]
     }
 }
 
@@ -89,6 +77,7 @@ pub struct Affine {
     weight: NNMatrix,
     d_weight: Option<NNMatrix>,
     x: Option<NNMatrix>,
+    x_shape: Vec<usize>,
 }
 
 impl Affine {
@@ -99,22 +88,29 @@ impl Affine {
             weight,
             d_weight: None,
             x: None,
+            x_shape: [0, 0].to_vec(),
         }
     }
 }
 
-impl Affine {}
-
-impl Layer for Affine {
-    fn forward(&mut self, x: &NNMatrix) -> NNMatrix {
+impl Affine {
+    pub fn forward(&mut self, x: &NNArrayD) -> NNArrayD {
+        self.x_shape = x.shape().to_vec();
+        let x = x
+            .clone()
+            .into_shape((x.shape()[0], x.len() / x.shape()[0]))
+            .unwrap();
         self.x = Some(x.clone());
 
-        x.dot(&self.weight) + &self.bias
+        let out = x.dot(&self.weight) + &self.bias;
+
+        out.into_dyn()
     }
 
-    fn backward(&mut self, d_out: &NNMatrix) -> NNMatrix {
-        let d_x = d_out.dot(&self.weight.t());
-        self.d_weight = Some(self.x.as_ref().unwrap().t().dot(d_out));
+    pub fn backward(&mut self, d_out: &NNArrayD) -> NNArrayD {
+        let d_out_matrix = d_out.to_owned().into_dimensionality::<Ix2>().unwrap();
+        let d_x = d_out_matrix.dot(&self.weight.t());
+        self.d_weight = Some(self.x.as_ref().unwrap().t().dot(&d_out_matrix));
         self.d_bias = Some(
             d_out
                 .sum_axis(Axis(0))
@@ -122,14 +118,24 @@ impl Layer for Affine {
                 .unwrap(),
         );
 
-        d_x
+        d_x.into_shape(self.x_shape.clone()).unwrap().into_dyn()
     }
 
-    fn parameters(&mut self) -> Vec<Parameter> {
-        vec![
-            (&mut self.weight, self.d_weight.as_ref().unwrap()),
-            (&mut self.bias, self.d_bias.as_ref().unwrap()),
-        ]
+    pub fn update<T: Optimizer>(&mut self, optimizer: &mut T) {
+        self.weight = optimizer
+            .update(
+                self.weight.clone().into_dyn(),
+                self.d_weight.as_ref().unwrap().clone().into_dyn(),
+            )
+            .into_dimensionality::<Ix2>()
+            .unwrap();
+        self.bias = optimizer
+            .update(
+                self.bias.clone().into_dyn(),
+                self.d_bias.as_ref().unwrap().clone().into_dyn(),
+            )
+            .into_dimensionality::<Ix2>()
+            .unwrap();
     }
 }
 
@@ -162,13 +168,13 @@ impl SoftmaxWithLoss {
         self.loss.unwrap()
     }
 
-    pub fn backward(&self) -> NNMatrix {
+    pub fn backward(&self) -> NNArrayD {
         let ref_t = self.t.as_ref().unwrap();
         let ref_y = self.y.as_ref().unwrap();
         let batch_size = ref_t.shape()[0] as NNFloat;
 
         if ref_y.len() == ref_t.len() {
-            (ref_y - ref_t) / batch_size
+            ((ref_y - ref_t) / batch_size).into_dyn()
         } else {
             let mut dx = ref_y.clone();
             for (i, arr) in ref_t.axis_iter(Axis(0)).enumerate() {
@@ -177,49 +183,8 @@ impl SoftmaxWithLoss {
                 }
             }
 
-            dx / batch_size
+            (dx / batch_size).into_dyn()
         }
-    }
-}
-
-pub struct Sequence {
-    layers: Vec<Box<dyn Layer>>,
-}
-
-impl Sequence {
-    pub fn new() -> Self {
-        Self { layers: vec![] }
-    }
-
-    pub fn add(&mut self, layer: Box<dyn Layer>) {
-        self.layers.push(layer);
-    }
-}
-
-impl Layer for Sequence {
-    fn forward(&mut self, x: &NNMatrix) -> NNMatrix {
-        let mut x = x.to_owned();
-        for layer_box in self.layers.iter_mut() {
-            x = layer_box.forward(&x);
-        }
-
-        x
-    }
-
-    fn backward(&mut self, d_out: &NNMatrix) -> NNMatrix {
-        let mut d_out = d_out.to_owned();
-        for layer_box in self.layers.iter_mut().rev() {
-            d_out = layer_box.backward(&d_out);
-        }
-
-        d_out
-    }
-
-    fn parameters(&mut self) -> Vec<Parameter> {
-        self.layers
-            .iter_mut()
-            .flat_map(|x| x.parameters())
-            .collect()
     }
 }
 
@@ -449,7 +414,8 @@ impl Convolution {
 }
 
 impl Convolution {
-    pub fn forward(&mut self, x: Array4<NNFloat>) -> Array4<NNFloat> {
+    pub fn forward(&mut self, x: NNArrayD) -> NNArrayD {
+        let x = x.into_dimensionality::<Ix4>().unwrap();
         let weight_shape = self.weight.shape();
         let filter_number = weight_shape[0];
         let filter_height = weight_shape[2];
@@ -481,10 +447,11 @@ impl Convolution {
         self.col = Some(col);
         self.col_w = Some(col_w);
 
-        out
+        out.into_dyn()
     }
 
-    pub fn backward(&mut self, d_out: Array4<NNFloat>) -> Array4<NNFloat> {
+    pub fn backward(&mut self, d_out: NNArrayD) -> NNArrayD {
+        let d_out = d_out.into_dimensionality::<Ix4>().unwrap();
         let weight_shape = self.weight.shape();
         let filter_number = weight_shape[0];
         let channel_count = weight_shape[1];
@@ -518,6 +485,24 @@ impl Convolution {
             self.stride,
             self.pad,
         )
+        .into_dyn()
+    }
+
+    pub fn update<T: Optimizer>(&mut self, optimizer: &mut T) {
+        self.weight = optimizer
+            .update(
+                self.weight.clone().into_dyn(),
+                self.d_w.as_ref().unwrap().clone().into_dyn(),
+            )
+            .into_dimensionality::<Ix4>()
+            .unwrap();
+        self.bias = optimizer
+            .update(
+                self.bias.clone().into_dyn(),
+                self.d_b.as_ref().unwrap().clone().into_dyn(),
+            )
+            .into_dimensionality::<Ix1>()
+            .unwrap();
     }
 }
 
@@ -634,17 +619,20 @@ mod tests {
         let mut relu_layer = Relu::new();
         let x_vec = array![[-1.0, 0.0, 1.0], [100.0, -10.0, 0.0],];
         let result_vec = array![[0.0, 0.0, 1.0], [100.0, 0.0, 0.0],];
-        assert_eq!(relu_layer.forward(&x_vec), result_vec);
+        assert_eq!(relu_layer.forward(&x_vec.into_dyn()), result_vec.into_dyn());
     }
 
     #[test]
     fn test_relu_backward() {
         let mut relu_layer = Relu {
-            mask: Some(array![[false, true, false], [true, false, true]]),
+            mask: Some(array![[false, true, false], [true, false, true]].into_dyn()),
         };
         let d_out_vec = array![[0.3, -0.5, -2.8], [0.1, 0.4, -1.2]];
         let result_vec = array![[0.3, 0.0, -2.8], [0.0, 0.4, 0.0]];
-        assert_eq!(relu_layer.backward(&d_out_vec), result_vec);
+        assert_eq!(
+            relu_layer.backward(&d_out_vec.into_dyn()),
+            result_vec.into_dyn()
+        );
     }
 
     #[test]
@@ -653,7 +641,10 @@ mod tests {
         let mut sigmoid_layer = Sigmoid::new();
         let x_vec = array![[18.0, 0.0, -100.0], [-100.0, 50.0, 0.0],];
         let result_vec = array![[1.0, 0.5, 0.0], [0.0, 1.0, 0.5],];
-        assert_eq!(sigmoid_layer.forward(&x_vec), result_vec);
+        assert_eq!(
+            sigmoid_layer.forward(&x_vec.into_dyn()),
+            result_vec.into_dyn()
+        );
     }
 
     #[test]
@@ -662,9 +653,12 @@ mod tests {
         let x_vec = array![[18.0, 0.0, -100.0], [-100.0, 50.0, 0.0],];
         let d_out = array![[1.0, 0.0, -1.0], [-0.5, 1.5, 0.1]];
         let result_vec = array![[1.522_997_9e-8, 0.0, 0.0], [0.0, 0.0, 2.5e-02]];
-        sigmoid_layer.forward(&x_vec);
+        sigmoid_layer.forward(&x_vec.into_dyn());
 
-        assert_matrix_eq(&sigmoid_layer.backward(&d_out), &result_vec);
+        assert_matrix_eq(
+            &sigmoid_layer.backward(&d_out.into_dyn()),
+            &result_vec.into_dyn(),
+        );
     }
 
     #[test]
@@ -695,13 +689,19 @@ mod tests {
             softmax_with_loss_layer.forward(&x_vec, &t_vec),
             result_forward,
         );
-        assert_matrix_eq(&softmax_with_loss_layer.backward(), &result_backword);
+        assert_matrix_eq(
+            &softmax_with_loss_layer.backward().into_dyn(),
+            &result_backword.clone().into_dyn(),
+        );
 
         assert_eq_on_epsilon(
             softmax_with_loss_layer.forward(&x_vec, &t_vec_2),
             result_forward,
         );
-        assert_matrix_eq(&softmax_with_loss_layer.backward(), &result_backword);
+        assert_matrix_eq(
+            &softmax_with_loss_layer.backward().into_dyn(),
+            &result_backword.into_dyn(),
+        );
     }
 
     #[test]
@@ -750,11 +750,14 @@ mod tests {
             ]
         ];
 
-        assert_matrix_eq(&affine.forward(&x), &result_forward);
-        assert_matrix_eq(&affine.backward(&d_out), &result_backward);
+        assert_matrix_eq(&affine.forward(&x.into_dyn()), &result_forward.into_dyn());
+        assert_matrix_eq(
+            &affine.backward(&d_out.into_dyn()),
+            &result_backward.into_dyn(),
+        );
     }
 
-    fn assert_matrix_eq(x: &NNMatrix, y: &NNMatrix) {
+    fn assert_matrix_eq(x: &NNArrayD, y: &NNArrayD) {
         assert!((x - y)
             .iter()
             .all(|value| { value.abs() < NNFloat::EPSILON }));

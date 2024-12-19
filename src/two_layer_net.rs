@@ -1,12 +1,15 @@
 use crate::functions::accuary;
-use crate::layers::{Affine, Layer, Relu, Sequence, SoftmaxWithLoss};
+use crate::layers::{Affine, Relu, SoftmaxWithLoss};
 use crate::optimizer::Optimizer;
 use crate::types::{NNFloat, NNMatrix};
+use ndarray::Ix2;
 use ndarray_rand::rand_distr::Uniform;
 use ndarray_rand::RandomExt;
 
 pub struct TwoLayerNet {
-    model: Sequence,
+    affine_layer1: Affine,
+    relu_layer: Relu,
+    affine_layer2: Affine,
     last_layer: SoftmaxWithLoss,
 }
 
@@ -23,12 +26,10 @@ impl TwoLayerNet {
             weight_init_std * NNMatrix::random((hidden_size, output_size), Uniform::new(-2.0, 2.0));
         let b1 = NNMatrix::zeros([1, hidden_size]);
         let b2 = NNMatrix::zeros([1, output_size]);
-        let mut model = Sequence::new();
-        model.add(Box::new(Affine::new(w1, b1)));
-        model.add(Box::new(Relu::new()));
-        model.add(Box::new(Affine::new(w2, b2)));
         Self {
-            model,
+            affine_layer1: Affine::new(w1, b1),
+            relu_layer: Relu::new(),
+            affine_layer2: Affine::new(w2, b2),
             last_layer: SoftmaxWithLoss::new(),
         }
     }
@@ -36,7 +37,11 @@ impl TwoLayerNet {
 
 impl TwoLayerNet {
     fn predict(&mut self, x: &NNMatrix) -> NNMatrix {
-        self.model.forward(x)
+        let affine_layer1_output = self.affine_layer1.forward(&x.clone().into_dyn());
+        let relu_output = self.relu_layer.forward(&affine_layer1_output);
+        let affine_layer2_output = self.affine_layer2.forward(&relu_output);
+
+        affine_layer2_output.into_dimensionality::<Ix2>().unwrap()
     }
 
     pub fn loss(&mut self, x: &NNMatrix, t: &NNMatrix) -> NNFloat {
@@ -50,11 +55,12 @@ impl TwoLayerNet {
     }
 
     pub fn train<T: Optimizer>(&mut self, x: &NNMatrix, t: &NNMatrix, optimizer: &mut T) {
-        // forward
-        self.loss(x, t);
+        let _ = self.loss(x, t);
         let d_out = self.last_layer.backward();
-        self.model.backward(&d_out);
-
-        optimizer.update(self.model.parameters());
+        let d_out = self.affine_layer2.backward(&d_out);
+        let d_out = self.relu_layer.backward(&d_out);
+        let _ = self.affine_layer1.backward(&d_out);
+        self.affine_layer1.update(optimizer);
+        self.affine_layer2.update(optimizer);
     }
 }

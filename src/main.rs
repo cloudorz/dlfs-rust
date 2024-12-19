@@ -1,4 +1,4 @@
-use crate::optimizer::{Momentum, SGD};
+use crate::optimizer::SGD;
 use crate::two_layer_net::TwoLayerNet;
 use crate::types::{NNFloat, NNMatrix};
 use mnist::*;
@@ -57,7 +57,7 @@ fn main() {
     let iter_per_epoch = max(train_size / batch_size, 1);
     let induce = Array::range(0.0, train_size as NNFloat, 1.0).mapv(|a| a as usize);
     // let optimizer = SGD::new(learning_rate);
-    let mut optimizer = Momentum::default();
+    let mut optimizer = SGD::default();
 
     for i in 0..iters_num {
         let batch_mask = induce
