@@ -5,8 +5,6 @@ use ndarray::{Array, Array1, Array2, Array4, ArrayD, Axis, Dimension, Ix1, Ix2, 
 use ndarray_rand::rand_distr::Uniform;
 use ndarray_rand::RandomExt;
 
-pub type Parameter<'a> = (&'a mut NNArrayD, &'a NNArrayD);
-
 #[derive(Debug)]
 pub struct Relu {
     #[allow(dead_code)]
@@ -72,8 +70,8 @@ impl Sigmoid {
 
 #[derive(Debug)]
 pub struct Affine {
-    bias: NNMatrix,
-    d_bias: Option<NNMatrix>,
+    bias: Array1<NNFloat>,
+    d_bias: Option<Array1<NNFloat>>,
     weight: NNMatrix,
     d_weight: Option<NNMatrix>,
     x: Option<NNMatrix>,
@@ -81,7 +79,7 @@ pub struct Affine {
 }
 
 impl Affine {
-    pub fn new(weight: NNMatrix, bias: NNMatrix) -> Self {
+    pub fn new(weight: NNMatrix, bias: Array1<NNFloat>) -> Self {
         Self {
             bias,
             d_bias: None,
@@ -98,7 +96,7 @@ impl Affine {
         self.x_shape = x.shape().to_vec();
         let x = x
             .clone()
-            .into_shape((x.shape()[0], x.len() / x.shape()[0]))
+            .into_shape((self.x_shape[0], x.len() / self.x_shape[0]))
             .unwrap();
         self.x = Some(x.clone());
 
@@ -111,12 +109,7 @@ impl Affine {
         let d_out_matrix = d_out.to_owned().into_dimensionality::<Ix2>().unwrap();
         let d_x = d_out_matrix.dot(&self.weight.t());
         self.d_weight = Some(self.x.as_ref().unwrap().t().dot(&d_out_matrix));
-        self.d_bias = Some(
-            d_out
-                .sum_axis(Axis(0))
-                .into_shape((1, d_out.shape()[1]))
-                .unwrap(),
-        );
+        self.d_bias = Some(d_out_matrix.sum_axis(Axis(0)));
 
         d_x.into_shape(self.x_shape.clone()).unwrap().into_dyn()
     }
@@ -134,7 +127,7 @@ impl Affine {
                 self.bias.clone().into_dyn(),
                 self.d_bias.as_ref().unwrap().clone().into_dyn(),
             )
-            .into_dimensionality::<Ix2>()
+            .into_dimensionality::<Ix1>()
             .unwrap();
     }
 }
@@ -434,7 +427,9 @@ impl Convolution {
             .weight
             .clone()
             .into_shape((filter_number, channel_count * filter_height * filter_width))
-            .unwrap();
+            .unwrap()
+            .t()
+            .to_owned();
         let out = col.dot(&col_w) + &self.bias;
         let mut out = out
             .into_shape((input_number, out_height, out_width, filter_number))
@@ -531,7 +526,7 @@ impl Pooling {
 }
 
 impl Pooling {
-    pub fn forward(&mut self, x: Array4<NNFloat>) -> Array4<NNFloat> {
+    pub fn forward(&mut self, x: NNArrayD) -> NNArrayD {
         let x_shape = x.shape();
         let input_number = x_shape[0];
         let channel_count = x_shape[1];
@@ -541,6 +536,7 @@ impl Pooling {
         let out_height = (input_height + 2 * self.pad - self.pool_h) / self.stride + 1;
         let out_width = (input_width + 2 * self.pad - self.pool_w) / self.stride + 1;
 
+        let x = x.into_dimensionality::<Ix4>().unwrap();
         let col = im2col(&x, self.pool_h, self.pool_w, self.stride, self.pad);
         let col = col
             .into_shape((
@@ -572,11 +568,11 @@ impl Pooling {
         self.x_shape = Some([input_number, channel_count, input_height, input_width]);
         self.arg_max = Some(arg_max_vec);
 
-        out
+        out.into_dyn()
     }
 
-    pub fn backward(&self, d_out: Array4<NNFloat>) -> Array4<NNFloat> {
-        let mut d_out = d_out;
+    pub fn backward(&self, d_out: NNArrayD) -> NNArrayD{
+        let mut d_out = d_out.into_dimensionality::<Ix4>().unwrap();
         let mut d_shape = d_out.shape().to_vec();
         // (0, 1, 2, 3) -> (0, 2, 3, 1)
         d_out.swap_axes(1, 3);
@@ -605,7 +601,7 @@ impl Pooling {
             self.pool_w,
             self.stride,
             self.pad,
-        )
+        ).into_dyn()
     }
 }
 
@@ -713,7 +709,7 @@ mod tests {
             [0.01846247, 0.00793499, 0.01425399],
             [-0.00180464, -0.001775, 0.00317565]
         ];
-        let bias = array![[-0.05998749, 0.08272106, -0.39614827]];
+        let bias = array![-0.05998749, 0.08272106, -0.39614827];
         let x = array![
             [
                 -0.37080965,

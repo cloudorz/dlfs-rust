@@ -10,3 +10,4 @@ authors = ["Cloud <cloudcry@gmail.com>"]
 mnist = { version = "0.6.0", features = ["download"] }
 ndarray = "0.15.6"
 ndarray-rand = "0.14.0"
+plotters = "0.3"

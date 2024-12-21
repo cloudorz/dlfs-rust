@@ -2,7 +2,7 @@ use crate::functions::accuary;
 use crate::layers::{Affine, Relu, SoftmaxWithLoss};
 use crate::optimizer::Optimizer;
 use crate::types::{NNFloat, NNMatrix};
-use ndarray::Ix2;
+use ndarray::{Array1, Ix2};
 use ndarray_rand::rand_distr::Uniform;
 use ndarray_rand::RandomExt;
 
@@ -24,8 +24,8 @@ impl TwoLayerNet {
             weight_init_std * NNMatrix::random((input_size, hidden_size), Uniform::new(-2.0, 2.0));
         let w2 =
             weight_init_std * NNMatrix::random((hidden_size, output_size), Uniform::new(-2.0, 2.0));
-        let b1 = NNMatrix::zeros([1, hidden_size]);
-        let b2 = NNMatrix::zeros([1, output_size]);
+        let b1 = Array1::<NNFloat>::zeros(hidden_size);
+        let b2 = Array1::<NNFloat>::zeros(output_size);
         Self {
             affine_layer1: Affine::new(w1, b1),
             relu_layer: Relu::new(),
@@ -60,7 +60,9 @@ impl TwoLayerNet {
         let d_out = self.affine_layer2.backward(&d_out);
         let d_out = self.relu_layer.backward(&d_out);
         let _ = self.affine_layer1.backward(&d_out);
+        optimizer.set_current_layer(1);
         self.affine_layer1.update(optimizer);
+        optimizer.set_current_layer(2);
         self.affine_layer2.update(optimizer);
     }
 }
